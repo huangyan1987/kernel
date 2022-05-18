@@ -2491,8 +2491,15 @@ static int nfs_do_access(struct inode *inode, struct rpc_cred *cred, int mask)
 	status = nfs_access_get_cached_rcu(inode, cred, &cache);
 	if (status != 0)
 		status = nfs_access_get_cached(inode, cred, &cache, may_block);
-	if (status == 0)
-		goto out_cached;
+	if (status == 0) {
+		if ((mask & ~cache.mask & (MAY_READ | MAY_WRITE | MAY_EXEC)) == 0)
+			/* if access is granted, trust the cache */
+			goto out_cached;
+		if (time_in_range_open(jiffies, cache.jiffies,
+				       cache.jiffies + NFS_MINATTRTIMEO(inode)))
+			/* If cache entry very new, trust even for negative */
+			goto out_cached;
+	}
 
 	status = -ECHILD;
 	if (!may_block)
