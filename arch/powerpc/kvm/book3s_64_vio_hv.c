@@ -223,13 +223,19 @@ static long iommu_tce_xchg_rm(struct mm_struct *mm, struct iommu_table *tbl,
 	return ret;
 }
 
-static void kvmppc_rm_clear_tce(struct kvm *kvm, struct iommu_table *tbl,
-		unsigned long entry)
+static void kvmppc_rm_clear_tce(struct kvm *kvm, struct kvmppc_spapr_tce_table *stt,
+		struct iommu_table *tbl, unsigned long entry)
 {
-	unsigned long hpa = 0;
-	enum dma_data_direction dir = DMA_NONE;
+	unsigned long i;
+	unsigned long subpages = 1ULL << (stt->page_shift - tbl->it_page_shift);
+	unsigned long io_entry = entry << (stt->page_shift - tbl->it_page_shift);
 
-	iommu_tce_xchg_rm(kvm->mm, tbl, entry, &hpa, &dir);
+	for (i = 0; i < subpages; ++i) {
+		unsigned long hpa = 0;
+		enum dma_data_direction dir = DMA_NONE;
+
+		iommu_tce_xchg_rm(kvm->mm, tbl, io_entry + i, &hpa, &dir);
+	}
 }
 
 static long kvmppc_rm_tce_iommu_mapped_dec(struct kvm *kvm,
@@ -401,7 +407,7 @@ long kvmppc_rm_h_put_tce(struct kvm_vcpu *vcpu, unsigned long liobn,
 					stit->tbl, entry, ua, dir);
 
 		if (ret != H_SUCCESS) {
-			kvmppc_rm_clear_tce(vcpu->kvm, stit->tbl, entry);
+			kvmppc_rm_clear_tce(vcpu->kvm, stt, stit->tbl, entry);
 			return ret;
 		}
 	}
@@ -550,8 +556,8 @@ long kvmppc_rm_h_put_tce_indirect(struct kvm_vcpu *vcpu,
 					iommu_tce_direction(tce));
 
 			if (ret != H_SUCCESS) {
-				kvmppc_rm_clear_tce(vcpu->kvm, stit->tbl,
-						entry);
+				kvmppc_rm_clear_tce(vcpu->kvm, stt, stit->tbl,
+						entry + i);
 				goto unlock_exit;
 			}
 		}
@@ -604,7 +610,7 @@ long kvmppc_rm_h_stuff_tce(struct kvm_vcpu *vcpu,
 				return ret;
 
 			WARN_ON_ONCE_RM(1);
-			kvmppc_rm_clear_tce(vcpu->kvm, stit->tbl, entry);
+			kvmppc_rm_clear_tce(vcpu->kvm, stt, stit->tbl, entry + i);
 		}
 	}
 
