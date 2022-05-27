@@ -366,6 +366,7 @@ __virtio_crypto_ablkcipher_do_req(struct virtio_crypto_request *vc_req,
 		goto free;
 	}
 
+	dst_len = min_t(unsigned int, req->nbytes, dst_len);
 	pr_debug("virtio_crypto: src_len: %u, dst_len: %llu\n",
 			req->nbytes, dst_len);
 
