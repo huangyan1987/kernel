@@ -105,6 +105,9 @@ static void init_fw_feat_flags(struct device_node *np)
 
 	if (fw_feature_is("enabled", "no-need-l1d-flush-kernel-on-user-access", np))
 		security_ftr_clear(SEC_FTR_L1D_FLUSH_UACCESS);
+
+	if (fw_feature_is("enabled", "no-need-store-drain-on-priv-state-switch", np))
+		security_ftr_clear(SEC_FTR_STF_BARRIER);
 }
 
 static void pnv_setup_security_mitigations(void)
