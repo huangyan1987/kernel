@@ -1663,7 +1663,7 @@ static int xs_get_srcport(struct sock_xprt *transport)
 	return port;
 }
 
-unsigned short get_srcport(struct rpc_xprt *xprt)
+static unsigned short xs_sock_srcport(struct rpc_xprt *xprt)
 {
 	struct sock_xprt *sock = container_of(xprt, struct sock_xprt, xprt);
 	unsigned short ret = 0;
@@ -1673,7 +1673,31 @@ unsigned short get_srcport(struct rpc_xprt *xprt)
 	mutex_unlock(&sock->recv_mutex);
 	return ret;
 }
+
+unsigned short get_srcport(struct rpc_xprt *xprt)
+{
+	return xs_sock_srcport(xprt);
+}
 EXPORT_SYMBOL(get_srcport);
+
+static int xs_sock_srcaddr(struct rpc_xprt *xprt, char *buf, size_t buflen)
+{
+	struct sock_xprt *sock = container_of(xprt, struct sock_xprt, xprt);
+	union {
+		struct sockaddr sa;
+		struct sockaddr_storage st;
+	} saddr;
+	int ret = -ENOTCONN;
+
+	mutex_lock(&sock->recv_mutex);
+	if (sock->sock) {
+		ret = kernel_getsockname(sock->sock, &saddr.sa);
+		if (ret >= 0)
+			ret = snprintf(buf, buflen, "%pISc", &saddr.sa);
+	}
+	mutex_unlock(&sock->recv_mutex);
+	return ret;
+}
 
 static unsigned short xs_next_srcport(struct sock_xprt *transport, unsigned short port)
 {
@@ -1750,15 +1774,15 @@ static void xs_local_set_port(struct rpc_xprt *xprt, unsigned short port)
 }
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
-static struct lock_class_key xs_key[2];
-static struct lock_class_key xs_slock_key[2];
+static struct lock_class_key xs_key[3];
+static struct lock_class_key xs_slock_key[3];
 
 static inline void xs_reclassify_socketu(struct socket *sock)
 {
 	struct sock *sk = sock->sk;
 
 	sock_lock_init_class_and_name(sk, "slock-AF_LOCAL-RPC",
-		&xs_slock_key[1], "sk_lock-AF_LOCAL-RPC", &xs_key[1]);
+		&xs_slock_key[0], "sk_lock-AF_LOCAL-RPC", &xs_key[0]);
 }
 
 static inline void xs_reclassify_socket4(struct socket *sock)
@@ -1766,7 +1790,7 @@ static inline void xs_reclassify_socket4(struct socket *sock)
 	struct sock *sk = sock->sk;
 
 	sock_lock_init_class_and_name(sk, "slock-AF_INET-RPC",
-		&xs_slock_key[0], "sk_lock-AF_INET-RPC", &xs_key[0]);
+		&xs_slock_key[1], "sk_lock-AF_INET-RPC", &xs_key[1]);
 }
 
 static inline void xs_reclassify_socket6(struct socket *sock)
@@ -1774,7 +1798,7 @@ static inline void xs_reclassify_socket6(struct socket *sock)
 	struct sock *sk = sock->sk;
 
 	sock_lock_init_class_and_name(sk, "slock-AF_INET6-RPC",
-		&xs_slock_key[1], "sk_lock-AF_INET6-RPC", &xs_key[1]);
+		&xs_slock_key[2], "sk_lock-AF_INET6-RPC", &xs_key[2]);
 }
 
 static inline void xs_reclassify_socket(int family, struct socket *sock)
@@ -1961,9 +1985,9 @@ static void xs_local_connect(struct rpc_xprt *xprt, struct rpc_task *task)
 
 #if IS_ENABLED(CONFIG_SUNRPC_SWAP)
 /*
- * Note that this should be called with XPRT_LOCKED held (or when we otherwise
- * know that we have exclusive access to the socket), to guard against
- * races with xs_reset_transport.
+ * Note that this should be called with XPRT_LOCKED held, or recv_mutex
+ * held, or when we otherwise know that we have exclusive access to the
+ * socket, to guard against races with xs_reset_transport.
  */
 static void xs_set_memalloc(struct rpc_xprt *xprt)
 {
@@ -1992,13 +2016,11 @@ xs_enable_swap(struct rpc_xprt *xprt)
 {
 	struct sock_xprt *xs = container_of(xprt, struct sock_xprt, xprt);
 
-	if (atomic_inc_return(&xprt->swapper) != 1)
-		return 0;
-	if (wait_on_bit_lock(&xprt->state, XPRT_LOCKED, TASK_KILLABLE))
-		return -ERESTARTSYS;
-	if (xs->inet)
+	mutex_lock(&xs->recv_mutex);
+	if (atomic_inc_return(&xprt->swapper) == 1 &&
+	    xs->inet)
 		sk_set_memalloc(xs->inet);
-	xprt_release_xprt(xprt, NULL);
+	mutex_unlock(&xs->recv_mutex);
 	return 0;
 }
 
@@ -2014,13 +2036,11 @@ xs_disable_swap(struct rpc_xprt *xprt)
 {
 	struct sock_xprt *xs = container_of(xprt, struct sock_xprt, xprt);
 
-	if (!atomic_dec_and_test(&xprt->swapper))
-		return;
-	if (wait_on_bit_lock(&xprt->state, XPRT_LOCKED, TASK_KILLABLE))
-		return;
-	if (xs->inet)
+	mutex_lock(&xs->recv_mutex);
+	if (atomic_dec_and_test(&xprt->swapper) &&
+	    xs->inet)
 		sk_clear_memalloc(xs->inet);
-	xprt_release_xprt(xprt, NULL);
+	mutex_unlock(&xs->recv_mutex);
 }
 #else
 static void xs_set_memalloc(struct rpc_xprt *xprt)
@@ -2664,6 +2684,8 @@ static const struct rpc_xprt_ops xs_udp_ops = {
 	.rpcbind		= rpcb_getport_async,
 	.set_port		= xs_set_port,
 	.connect		= xs_connect,
+	.get_srcaddr		= xs_sock_srcaddr,
+	.get_srcport		= xs_sock_srcport,
 	.buf_alloc		= rpc_malloc,
 	.buf_free		= rpc_free,
 	.send_request		= xs_udp_send_request,
@@ -2686,6 +2708,8 @@ static const struct rpc_xprt_ops xs_tcp_ops = {
 	.rpcbind		= rpcb_getport_async,
 	.set_port		= xs_set_port,
 	.connect		= xs_connect,
+	.get_srcaddr		= xs_sock_srcaddr,
+	.get_srcport		= xs_sock_srcport,
 	.buf_alloc		= rpc_malloc,
 	.buf_free		= rpc_free,
 	.prepare_request	= xs_stream_prepare_request,
@@ -2844,9 +2868,6 @@ static struct rpc_xprt *xs_setup_local(struct xprt_create *args)
 		}
 		xprt_set_bound(xprt);
 		xs_format_peer_addresses(xprt, "local", RPCBIND_NETID_LOCAL);
-		ret = ERR_PTR(xs_local_setup_socket(transport));
-		if (ret)
-			goto out_err;
 		break;
 	default:
 		ret = ERR_PTR(-EAFNOSUPPORT);

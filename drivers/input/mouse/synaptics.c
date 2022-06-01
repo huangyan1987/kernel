@@ -186,6 +186,7 @@ static const char * const smbus_pnp_ids[] = {
 	"LEN2044", /* L470  */
 	"LEN2054", /* E480 */
 	"LEN2055", /* E580 */
+	"LEN2064", /* T14 Gen 1 AMD / P14s Gen 1 AMD */
 	"LEN2068", /* T14 Gen 1 */
 	"SYN3052", /* HP EliteBook 840 G4 */
 	"SYN3221", /* HP 15-ay000 */
@@ -416,7 +417,7 @@ static int synaptics_resolution(struct psmouse *psmouse,
 	return 0;
 }
 
-static int synaptics_query_hardware(struct psmouse *psmouse,
+static int __synaptics_query_hardware(struct psmouse *psmouse,
 				    struct synaptics_device_info *info)
 {
 	int error;
@@ -448,6 +449,21 @@ static int synaptics_query_hardware(struct psmouse *psmouse,
 		return error;
 
 	return 0;
+}
+
+static int synaptics_query_hardware(struct psmouse *psmouse,
+				    struct synaptics_device_info *info)
+{
+	int err;
+
+	err = __synaptics_query_hardware(psmouse, info);
+	if (err) {
+		psmouse_info(psmouse, "Query error (%d), retrying...\n", err);
+		msleep(100);
+		err = __synaptics_query_hardware(psmouse, info);
+	}
+
+	return err;
 }
 
 #endif /* CONFIG_MOUSE_PS2_SYNAPTICS || CONFIG_MOUSE_PS2_SYNAPTICS_SMBUS */

@@ -56,9 +56,18 @@
 struct nfs_access_entry {
 	struct rb_node		rb_node;
 	struct list_head	lru;
-	const struct cred *	cred;
+#ifdef __GENKSYMS__
+	const struct cred	*cred;
+#else
+	struct group_info	*group_info;
+#endif
 	__u32			mask;
 	struct rcu_head		rcu_head;
+#ifndef __GENKSYMS__
+	kuid_t			fsuid;
+	kgid_t			fsgid;
+	unsigned long		jiffies;
+#endif
 };
 
 struct nfs_lock_context {
@@ -99,6 +108,7 @@ struct nfs_open_dir_context {
 	__u64 dir_cookie;
 	__u64 dup_cookie;
 	signed char duped;
+	bool eof;
 };
 
 /*

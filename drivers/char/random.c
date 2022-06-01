@@ -1389,13 +1389,13 @@ static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
 		return extract_fips_drbg_user(buf, nbytes, tmp);
 
 	while (nbytes) {
-		if (large_request && need_resched()) {
+		if (large_request) {
 			if (signal_pending(current)) {
 				if (ret == 0)
 					ret = -ERESTARTSYS;
 				break;
 			}
-			schedule();
+			cond_resched();
 		}
 
 		extract_crng(tmp);
@@ -2092,8 +2092,8 @@ static void __init init_std_data(struct entropy_store *r)
 }
 
 /*
- * add_device_randomness() or add_bootloader_randomness() may be
- * called long before we get here. This allows seeding of the pools
+ * Note that setup_arch() may call add_device_randomness()
+ * long before we get here. This allows seeding of the pools
  * with some platform dependent data very early in the boot
  * process. But it limits our options here. We must use
  * statically allocated structures that already have all
@@ -2276,7 +2276,10 @@ static long random_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 		 */
 		if (!capable(CAP_SYS_ADMIN))
 			return -EPERM;
-		input_pool.entropy_count = 0;
+		if (xchg(&input_pool.entropy_count, 0) && random_write_wakeup_bits) {
+			wake_up_interruptible(&random_write_wait);
+			kill_fasync(&fasync, SIGIO, POLL_OUT);
+		}
 		return 0;
 	case RNDRESEEDCRNG:
 		if (!capable(CAP_SYS_ADMIN))
@@ -2304,6 +2307,8 @@ const struct file_operations random_fops = {
 	.compat_ioctl = compat_ptr_ioctl,
 	.fasync = random_fasync,
 	.llseek = noop_llseek,
+	.splice_read = generic_file_splice_read,
+	.splice_write = iter_file_splice_write,
 };
 
 const struct file_operations urandom_fops = {
@@ -2313,6 +2318,8 @@ const struct file_operations urandom_fops = {
 	.compat_ioctl = compat_ptr_ioctl,
 	.fasync = random_fasync,
 	.llseek = noop_llseek,
+	.splice_read = generic_file_splice_read,
+	.splice_write = iter_file_splice_write,
 };
 
 SYSCALL_DEFINE3(getrandom, char __user *, buf, size_t, count,
@@ -2609,12 +2616,7 @@ void add_hwgenerator_randomness(const char *buffer, size_t count,
 {
 	struct entropy_store *poolp = &input_pool;
 
-	/* We cannot do much with the input pool until it is set up in
-	 * rand_initalize(); therefore just mix into the crng state.
-	 * As this does not affect the input pool, we cannot credit
-	 * entropy for this.
-	 */
-	if (unlikely(crng_init == 0 || crng_global_init_time == 0)) {
+	if (unlikely(crng_init == 0)) {
 		crng_fast_load(buffer, count);
 		return;
 	}

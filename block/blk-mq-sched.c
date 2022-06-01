@@ -18,28 +18,32 @@
 #include "blk-mq-tag.h"
 #include "blk-wbt.h"
 
-void blk_mq_sched_assign_ioc(struct request *rq)
+struct io_cq *blk_mq_sched_get_icq(struct request_queue *q)
 {
-	struct request_queue *q = rq->q;
 	struct io_context *ioc;
 	struct io_cq *icq;
 
-	/*
-	 * May not have an IO context if it's a passthrough request
-	 */
+	/* May not have an IO context if context creation failed */
 	ioc = current->io_context;
 	if (!ioc)
-		return;
+		return NULL;
 
 	spin_lock_irq(&q->queue_lock);
 	icq = ioc_lookup_icq(ioc, q);
 	spin_unlock_irq(&q->queue_lock);
+	if (icq)
+		return icq;
+	return ioc_create_icq(ioc, q, GFP_ATOMIC);
+}
+EXPORT_SYMBOL(blk_mq_sched_get_icq);
 
-	if (!icq) {
-		icq = ioc_create_icq(ioc, q, GFP_ATOMIC);
-		if (!icq)
-			return;
-	}
+void blk_mq_sched_assign_ioc(struct request *rq)
+{
+	struct io_cq *icq;
+
+	icq = blk_mq_sched_get_icq(rq->q);
+	if (!icq)
+		return;
 	get_io_context(icq->ioc);
 	rq->elv.icq = icq;
 }
@@ -208,11 +212,18 @@ static int __blk_mq_do_dispatch_sched(struct blk_mq_hw_ctx *hctx)
 
 static int blk_mq_do_dispatch_sched(struct blk_mq_hw_ctx *hctx)
 {
+	unsigned long end = jiffies + HZ;
 	int ret;
 
 	do {
 		ret = __blk_mq_do_dispatch_sched(hctx);
-	} while (ret == 1);
+		if (ret != 1)
+			break;
+		if (need_resched() || time_is_before_jiffies(end)) {
+			blk_mq_delay_run_hw_queue(hctx, 0);
+			break;
+		}
+	} while (1);
 
 	return ret;
 }

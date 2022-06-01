@@ -30,8 +30,9 @@ static void sev_ioctl(int vm_fd, int cmd_id, void *data)
 	};
 	int ret;
 
+
 	ret = ioctl(vm_fd, KVM_MEMORY_ENCRYPT_OP, &cmd);
-	TEST_ASSERT((ret == 0 || cmd.error == SEV_RET_SUCCESS),
+	TEST_ASSERT(ret == 0 && cmd.error == SEV_RET_SUCCESS,
 		    "%d failed: return code: %d, errno: %d, fw error: %d",
 		    cmd_id, ret, errno, cmd.error);
 }
@@ -89,7 +90,7 @@ static void test_sev_migrate_from(bool es)
 {
 	struct kvm_vm *src_vm;
 	struct kvm_vm *dst_vms[NR_MIGRATE_TEST_VMS];
-	int i;
+	int i, ret;
 
 	src_vm = sev_vm_create(es);
 	for (i = 0; i < NR_MIGRATE_TEST_VMS; ++i)
@@ -102,7 +103,10 @@ static void test_sev_migrate_from(bool es)
 		sev_migrate_from(dst_vms[i]->fd, dst_vms[i - 1]->fd);
 
 	/* Migrate the guest back to the original VM. */
-	sev_migrate_from(src_vm->fd, dst_vms[NR_MIGRATE_TEST_VMS - 1]->fd);
+	ret = __sev_migrate_from(src_vm->fd, dst_vms[NR_MIGRATE_TEST_VMS - 1]->fd);
+	TEST_ASSERT(ret == -1 && errno == EIO,
+		    "VM that was migrated from should be dead. ret %d, errno: %d\n", ret,
+		    errno);
 
 	kvm_vm_free(src_vm);
 	for (i = 0; i < NR_MIGRATE_TEST_VMS; ++i)

@@ -2496,8 +2496,7 @@ static irqreturn_t hclgevf_misc_irq_handle(int irq, void *data)
 		break;
 	}
 
-	if (event_cause != HCLGEVF_VECTOR0_EVENT_OTHER)
-		hclgevf_enable_vector(&hdev->misc_vector, true);
+	hclgevf_enable_vector(&hdev->misc_vector, true);
 
 	return IRQ_HANDLED;
 }
@@ -3341,6 +3340,11 @@ static int hclgevf_reset_hdev(struct hclgevf_dev *hdev)
 			"failed(%d) to initialize VLAN config\n", ret);
 		return ret;
 	}
+
+	/* get current port based vlan state from PF */
+	ret = hclgevf_get_port_base_vlan_filter_state(hdev);
+	if (ret)
+		return ret;
 
 	set_bit(HCLGEVF_STATE_PROMISC_CHANGED, &hdev->state);
 

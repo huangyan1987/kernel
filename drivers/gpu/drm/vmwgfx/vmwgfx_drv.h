@@ -59,11 +59,8 @@
 #define VMWGFX_DRIVER_MINOR 18
 #define VMWGFX_DRIVER_PATCHLEVEL 1
 #define VMWGFX_FIFO_STATIC_SIZE (1024*1024)
-#define VMWGFX_MAX_RELOCATIONS 2048
-#define VMWGFX_MAX_VALIDATIONS 2048
 #define VMWGFX_MAX_DISPLAYS 16
 #define VMWGFX_CMD_BOUNCE_INIT_SIZE 32768
-#define VMWGFX_ENABLE_SCREEN_TARGET_OTABLE 1
 
 #define VMWGFX_PCI_ID_SVGA2              0x0405
 #define VMWGFX_PCI_ID_SVGA3              0x0406
@@ -1648,6 +1645,14 @@ static inline void vmw_irq_status_write(struct vmw_private *vmw,
 		vmw_write(vmw, SVGA_REG_IRQ_STATUS, status);
 	else
 		outl(status, vmw->io_start + SVGA_IRQSTATUS_PORT);
+}
+
+static inline bool vmw_has_fences(struct vmw_private *vmw)
+{
+	if ((vmw->capabilities & (SVGA_CAP_COMMAND_BUFFERS |
+				  SVGA_CAP_CMD_BUFFERS_2)) != 0)
+		return true;
+	return (vmw_fifo_caps(vmw) & SVGA_FIFO_CAP_FENCE) != 0;
 }
 
 #endif
