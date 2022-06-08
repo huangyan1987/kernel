@@ -499,6 +499,8 @@ bool inet_ehash_nolisten3(struct sock *sk, struct sock *osk, bool *found_dup_sk)
 	return ok;
 }
 
+EXPORT_SYMBOL_GPL(inet_ehash_nolisten3);
+
 static int inet_reuseport_add_sock(struct sock *sk,
 				   struct inet_listen_hashbucket *ilb)
 {
