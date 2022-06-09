@@ -1901,7 +1901,6 @@ EXPORT_SYMBOL(unregister_framebuffer);
 void fb_set_suspend(struct fb_info *info, int state)
 {
 	struct fb_event event;
-	u32 unused;
 
 	event.info = info;
 	if (state) {
