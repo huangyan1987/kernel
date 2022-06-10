@@ -602,17 +602,10 @@ static int ufs_qcom_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 	if (err) {
 		dev_err(hba->dev, "%s: failed enabling regs, err = %d\n",
 			__func__, err);
-		goto out;
+		return err;
 	}
 
-	err = ufs_qcom_enable_lane_clks(host);
-	if (err)
-		goto out;
-
-	hba->is_sys_suspended = false;
-
-out:
-	return err;
+	return ufs_qcom_enable_lane_clks(host);
 }
 
 struct ufs_qcom_dev_params {
