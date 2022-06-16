@@ -56,6 +56,7 @@ struct nfs_access_entry {
 	struct group_info	*group_info;
 	__u32			mask;
 	struct rcu_head		rcu_head;
+	unsigned long		jiffies;
 };
 
 struct nfs_lock_context {
