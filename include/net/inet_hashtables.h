@@ -208,6 +208,7 @@ int __inet_inherit_port(const struct sock *sk, struct sock *child);
 void inet_put_port(struct sock *sk);
 
 void inet_hashinfo_init(struct inet_hashinfo *h);
+void inet_alloc_perturb_table(void);
 
 bool inet_ehash_insert(struct sock *sk, struct sock *osk, bool *found_dup_sk);
 bool inet_ehash_nolisten(struct sock *sk, struct sock *osk);
